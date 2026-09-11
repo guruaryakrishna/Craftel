@@ -1,0 +1,142 @@
+# ==========================================
+# Operating System & Environment Secrets
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment variables & API keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# ==========================================
+# IDE & Code Editor Configurations
+# ==========================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.workspace
+
+# ==========================================
+# Node.js Backend & Local Artifacts
+# ==========================================
+node_modules/
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data & process identifiers
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary artisan file storage & processing buffers
+public/temp/
+temp/
+/tmp/
+
+# ==========================================
+# Python Backend & AI Engine
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# AI/ML Model Artifacts & Heavy Datasets
+*.onnx
+*.pt
+*.pth
+*.bin
+*.h5
+*.tflite
+*.safetensors
+*.ckpt
+*.pkl
+dataset/
+datasets/
+data/raw/
+data/processed/
+runs/
+wandb/
+
+# ==========================================
+# Flutter / React Native Mobile App
+# ==========================================
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.symbol-indexing
+
+# Android Native Artifacts
+android/.gradle/
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.keystore
+*.jks
+
+# iOS Native Artifacts
+ios/Pods/
+ios/Podfile.lock
+ios/.symlinks/
+ios/Runner.xcworkspace/
+ios/DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcuserdata
+
+# ==========================================
+# Database & Cloud Storage
+# ==========================================
+*.sqlite3
+*.db
+*.sqlite
+/uploads/
+/media/
+/static/generated/
