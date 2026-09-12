@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
+import joblib
 # Load artisan pricing dataset
 df = pd.read_csv("artisan_pricing_sample_8000.csv")
 print("Dataset loaded successfully.")
@@ -114,7 +115,7 @@ feature_columns = [
     "origin_state",
     "demand_index",
     "market_trend",
-    "material_type"
+    "material_type",
 ]
 X = df[feature_columns]
 y = df["actual_selling_price"]
@@ -127,7 +128,7 @@ numerical_features = [
     "material_cost",
     "production_time_days",
     "demand_index",
-    "market_trend"
+    "market_trend",
 ]
 categorical_features = [
     "product_category",
@@ -165,14 +166,20 @@ X_test_processed = preprocessor.transform(X_test)
 print("\nFeature encoding completed successfully.")
 print("Processed training features:", X_train_processed.shape)
 print("Processed testing features:", X_test_processed.shape)
-# Train Random Forest model
+# Train optimized Random Forest model
 random_forest_model = RandomForestRegressor(
-    n_estimators=300,
+    n_estimators=500,
+    max_depth=20,
+    min_samples_split=4,
+    min_samples_leaf=2,
+    max_features=0.8,
     random_state=42,
     n_jobs=-1
 )
+
 random_forest_model.fit(X_train_processed, y_train)
-print("\nRandom Forest model trained successfully.")
+
+print("\nOptimized Random Forest model trained successfully.")
 # Evaluate Random Forest model
 rf_predictions = random_forest_model.predict(X_test_processed)
 rf_mae = mean_absolute_error(y_test, rf_predictions)
@@ -203,16 +210,24 @@ rf_accuracy = 100 - rf_mape
 
 print("\nRandom Forest MAPE:", rf_mape, "%")
 print("Random Forest overall prediction accuracy:", rf_accuracy, "%")
-# Train XGBoost model
+# Train optimized XGBoost model
+
 xgboost_model = XGBRegressor(
-    n_estimators=300,
-    learning_rate=0.05,
-    max_depth=6,
+    n_estimators=600,
+    learning_rate=0.03,
+    max_depth=5,
+    min_child_weight=3,
+    subsample=0.9,
+    colsample_bytree=0.9,
+    reg_alpha=0.1,
+    reg_lambda=1.5,
     random_state=42,
     n_jobs=-1
 )
+
 xgboost_model.fit(X_train_processed, y_train)
-print("\nXGBoost model trained successfully.")
+
+print("\nOptimized XGBoost model trained successfully.")
 # Evaluate XGBoost model
 xgb_predictions = xgboost_model.predict(X_test_processed)
 xgb_mae = mean_absolute_error(y_test, xgb_predictions)
@@ -257,20 +272,25 @@ catboost_category_indices = [
 ]
 print("\nCatBoost data prepared successfully.")
 print("Categorical feature indices:", catboost_category_indices)
-# Train CatBoost model
+# Train optimized CatBoost model
+
 catboost_model = CatBoostRegressor(
-    iterations=300,
-    learning_rate=0.05,
+    iterations=600,
+    learning_rate=0.03,
     depth=6,
+    l2_leaf_reg=5,
+    loss_function="RMSE",
     random_seed=42,
     verbose=0
 )
+
 catboost_model.fit(
     X_train,
     y_train,
     cat_features=catboost_category_indices
 )
-print("\nCatBoost model trained successfully.")
+
+print("\nOptimized CatBoost model trained successfully.")
 # Evaluate CatBoost model
 catboost_predictions = catboost_model.predict(X_test)
 catboost_mae = mean_absolute_error(y_test, catboost_predictions)
@@ -301,3 +321,8 @@ catboost_accuracy = 100 - catboost_mape
 
 print("\nCatBoost MAPE:", catboost_mape, "%")
 print("CatBoost overall prediction accuracy:", catboost_accuracy, "%")
+# Save the optimized CatBoost model
+
+joblib.dump(catboost_model, "catboost_pricing_model.pkl")
+
+print("\nOptimized CatBoost model saved successfully.")
