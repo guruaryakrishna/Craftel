@@ -28,6 +28,11 @@ app.use('/api/voice', require('./routes/voiceRoutes'));
 // Text Translation API
 app.use('/api/translate-text', require('./routes/translationRoutes'));
 
+// image_enhancement
+// FIX: Require the router into a variable first to ensure Express reads it as a valid function
+const productImageRoutes = require('./routes/productImageRoutes');
+app.use('/api/product-image', productImageRoutes);
+
 // ==========================================
 // 3. HEALTH CHECK
 // ==========================================
