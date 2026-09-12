@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+numpy
+pandas
+scikit-learn
+xgboost
+catboost
+joblib
+torch
+opencv-python
+Pillow
+rembg
+groq
+google-genai
