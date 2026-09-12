@@ -1,19 +1,40 @@
 import os
+import sys
 import shutil
 import tempfile
 from typing import Dict, Any, Optional, List
+import cv2
+import numpy as np
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Import functions from cataloger modules
+# ==========================================
+# PATH ROUTING (Allows access to sibling folders without breaking cataloger)
+# ==========================================
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# ==========================================
+# CATALOGER IMPORTS (Strictly Unchanged)
+# ==========================================
 from extractor import extract_product_data
 from question_generator import generate_artisan_questions
 from speech_to_text import transcribe_audio
 from translator import translate_text
 from validator import validate_artisan_answer
 from final_description import generate_final_product_description
+
+# ==========================================
+# SIBLING IMPORTS (Image Enhancer & Pricing)
+# ==========================================
+from image_enhancer.blurr_tester import validate_image_sharpness
+from image_enhancer.image_enhancer import process_lighting_pipeline
+from image_enhancer.background_remover import remove_product_background
+from image_enhancer.formatter import format_ecommerce_canvas
 
 
 app = FastAPI(
@@ -255,6 +276,66 @@ def api_generate_description(
             status_code=500,
             detail=str(e)
         )
+
+
+# ==========================================
+# 7. IMAGE ENHANCEMENT PIPELINE
+# ==========================================
+
+@app.post("/api/process-product-image")
+async def api_process_product_image(image: UploadFile = File(...)):
+    """
+    Unified image pipeline endpoint that connects:
+    1. Blur Validation
+    2. Zero-DCE Lighting Enhancement
+    3. Background Removal (rembg)
+    4. 1080x1080 White Canvas & Drop Shadow Formatting
+    """
+    try:
+        # Read raw incoming bytes and decode to an OpenCV matrix
+        raw_bytes = await image.read()
+        image_matrix = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
+
+        if image_matrix is None:
+            raise HTTPException(status_code=400, detail="Invalid image file provided.")
+
+        # Step 1: Blur Check
+        is_sharp, score, blur_msg = validate_image_sharpness(image_matrix)
+        if not is_sharp:
+            return {"status": "rejected", "step": "blur_check", "message": blur_msg, "score": score}
+
+        # Step 2: Lighting Routing & AI Enhancement
+        success_light, enhanced_matrix, light_msg = process_lighting_pipeline(image_matrix)
+        if not success_light:
+            raise HTTPException(status_code=500, detail=light_msg)
+
+        # Step 3: Background Removal
+        success_bg, rgba_matrix, bg_msg = remove_product_background(enhanced_matrix)
+        if not success_bg:
+            raise HTTPException(status_code=500, detail=bg_msg)
+
+        # Step 4: Canvas Formatter with Drop Shadow
+        success_canvas, final_canvas, canvas_msg = format_ecommerce_canvas(rgba_matrix, canvas_size=1080, padding=120)
+        if not success_canvas:
+            raise HTTPException(status_code=500, detail=canvas_msg)
+
+        # Step 5: Save locally for cataloger/LLM downstream tasks
+        output_dir = "processed_outputs"
+        os.makedirs(output_dir, exist_ok=True)
+        safe_filename = f"product_{os.path.splitext(image.filename)[0]}.jpg"
+        output_path = os.path.join(output_dir, safe_filename)
+        
+        cv2.imwrite(output_path, final_canvas)
+
+        return {
+            "status": "success",
+            "message": "Image processing pipeline executed successfully.",
+            "saved_file_path": output_path,
+            "blur_score": score
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================

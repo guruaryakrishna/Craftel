@@ -1,10 +1,5 @@
 import cv2
 import numpy as np
-import os
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import Response
-
-app = FastAPI()
 
 def format_ecommerce_canvas(rgba_image, canvas_size=1080, padding=120):
     """
@@ -64,32 +59,3 @@ def format_ecommerce_canvas(rgba_image, canvas_size=1080, padding=120):
              (1 - alpha_mask) * canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w, c])
 
     return True, canvas, "Successfully formatted to 1080x1080 white canvas."
-
-@app.post("/format-canvas")
-async def format_canvas_endpoint(file: UploadFile = File(...)):
-    """
-    FastAPI endpoint that receives a transparent PNG (from rembg),
-    runs the e-commerce white canvas formatter, and streams back the final JPEG bytes.
-    """
-    # Read incoming file bytes from the frontend request
-    raw_bytes = await file.read()
-    
-    # Decode bytes into a 4-channel BGRA OpenCV matrix (preserving alpha transparency)
-    rgba_image = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
-    
-    # Run through the canvas formatter logic
-    success, formatted_canvas, message = format_ecommerce_canvas(rgba_image)
-    
-    if not success:
-        return {"status": "error", "message": message}
-    
-    # Encode the final 3-channel matrix into JPG bytes to stream back to the app
-    success_enc, encoded_image = cv2.imencode('.jpg', formatted_canvas)
-    if not success_enc:
-        return {"status": "error", "message": "Failed to encode final image."}
-        
-    return Response(content=encoded_image.tobytes(), media_type="image/jpeg")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
