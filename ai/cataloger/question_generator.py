@@ -19,62 +19,66 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 
-# Define Question Schema
+# Pydantic Schemas for Structured Output
 class QuestionOption(BaseModel):
-    option_id: str = Field(description="Unique short code/key for the option, e.g., 'opt_1', 'pure_pattu', 'silk_cotton'.")
-    option_text: str = Field(description="Display label for the user in clear, accessible language.")
+    option_id: str = Field(description="Unique short key for the option, e.g., 'confirm_clay', 'kg', 'opt_1'.")
+    option_text: str = Field(description="Display label for the artisan in simple language.")
 
 class InteractiveQuestion(BaseModel):
-    question_id: str = Field(description="Unique snake_case identifier for the attribute, e.g., 'material_type_confirmation', 'dimensions_cm', 'care_instructions'.")
-    question_text: str = Field(description="User-friendly question worded respectfully for artisans and micro-entrepreneurs.")
-    question_type: str = Field(description="Type of input: 'single_choice', 'multiple_choice', 'text_input', or 'number_input'.")
-    options: Optional[List[QuestionOption]] = Field(default=None, description="List of options if single_choice or multiple_choice.")
-    is_required: bool = Field(default=True, description="Whether this information is critical for e-commerce listing.")
-    explanation_tip: Optional[str] = Field(default=None, description="A simple tip explaining WHY this detail helps buyers.")
+    question_id: str = Field(description="Unique snake_case identifier, e.g., 'confirm_silk_type', 'raw_material_clay_qty'.")
+    question_text: str = Field(description="Clear, respectful question for the artisan.")
+    question_type: str = Field(description="Input type: 'single_choice', 'multiple_choice', 'text_input', or 'number_input'.")
+    options: Optional[List[QuestionOption]] = Field(default=None, description="Preset choices if single_choice or multiple_choice.")
+    is_required: bool = Field(default=True, description="Whether this information is required for pricing or listing.")
+    explanation_tip: Optional[str] = Field(default=None, description="Brief note explaining why this detail is needed.")
 
 class ProductQuestionnaire(BaseModel):
-    product_title_suggestion: str = Field(description="Suggested e-commerce title generated from visual analysis.")
-    missing_critical_attributes: List[str] = Field(description="Key attributes missing or requiring confirmation (e.g., Exact Material Type, Dimensions, Care instructions).")
-    questions: List[InteractiveQuestion] = Field(description="List of 3 to 5 tailored questions to ask the seller.")
+    product_title_suggestion: str = Field(description="Suggested product title based on confirmed user input and visual analysis.")
+    confirmed_user_facts: List[str] = Field(description="List of details confirmed directly from the user's text description that will NOT be asked again.")
+    visual_assumptions_to_verify: List[str] = Field(description="Visual predictions from LLM analysis that need explicit artisan confirmation.")
+    questions: List[InteractiveQuestion] = Field(description="3 to 5 targeted questions for material confirmation, raw material breakdown, and listing details.")
 
 
-def generate_artisan_questions(extracted_visual_data: dict, max_retries: int = 3) -> dict:
+def generate_artisan_questions(
+    llm_visual_analysis: dict, 
+    user_description: str = "", 
+    max_retries: int = 3
+) -> dict:
     """
-    Generates intelligent follow-up questions tailored to the artisan based on the image classification output,
-    explicitly verifying materials and weave types while avoiding unverified visual assumptions.
+    Compares the user description against visual LLM predictions:
+    1. Ignores facts explicitly mentioned by the user.
+    2. Asks for confirmation on visual LLM assumptions (e.g., predicted materials/weave).
+    3. Collects raw material breakdown (types and quantities) for downstream ML cost estimation.
+    4. Gathers missing non-visual e-commerce specs (e.g., exact dimensions, care instructions).
     """
-    
-    major_category = extracted_visual_data.get("major_category", "General Craft")
-    sub_category = extracted_visual_data.get("sub_category", "General")
-    materials = extracted_visual_data.get("materials_detected", [])
-    features = extracted_visual_data.get("visual_features", [])
-    brief_summary = extracted_visual_data.get("brief_summary", "")
+
+    major_category = llm_visual_analysis.get("major_category", "General Craft")
+    sub_category = llm_visual_analysis.get("sub_category", "General")
+    materials = llm_visual_analysis.get("materials_detected", [])
+    features = llm_visual_analysis.get("visual_features", [])
+    brief_summary = llm_visual_analysis.get("brief_summary", "")
 
     prompt = f"""
-    You are an AI assistant helping Indian micro-entrepreneurs, rural artisans, and handloom weavers digitize their products for e-commerce.
+    You are an AI cataloging assistant for Indian micro-entrepreneurs, artisans, and weavers.
+    Your goal is to prepare questions to confirm product specs and collect raw material data for price estimation.
 
-    --- VISUAL EXTRACTION ANALYSIS ---
+    --- LLM VISUAL EXTRACTION ANALYSIS (UNCONFIRMED ESTIMATES) ---
     Major Category: {major_category}
     Sub-Category: {sub_category}
-    Materials Detected visually: {', '.join(materials) if materials else 'None identified'}
-    Visual Features: {', '.join(features) if features else 'None identified'}
+    Detected Materials: {', '.join(materials) if materials else 'None'}
+    Detected Features: {', '.join(features) if features else 'None'}
     Visual Summary: {brief_summary}
 
-    --- TASK ---
-    Generate 3 to 5 clear, friendly, and practical questions for the seller.
-    NEVER assume visual predictions about raw materials or fabric types are 100% accurate. You MUST ask the seller to verify and specify exact material details along with non-visual specifications.
+    --- USER PROVIDED DESCRIPTION (CONFIRMED FACTS) ---
+    "{user_description if user_description.strip() else 'No description provided by user.'}"
 
-    --- MANDATORY QUESTION RULES ---
-    1. **Always Verify Material & Fabric Type**:
-       - For Handloom/Sarees/Textiles: Always ask for exact fabric verification (e.g., "Is this Pure Pattu / Mulberry Silk, Silk-Cotton Mix, Art Silk, Dupion, or Pure Cotton?").
-       - Ask whether it includes Silk Mark certification or Handloom mark if applicable.
-    2. **Collect Critical Non-Visual Specs**:
-       - Dimensions: Length/Width in meters or inches, Saree length (e.g., 5.5m vs 6.3m with blouse piece).
-       - Care Instructions: Dry clean only, hand wash, or machine wash.
-       - Crafting Process: Pure handloom vs powerloom, weaving method (e.g., Kanchipuram, Banarasi, Pochampally, Ikkat).
-    3. **User-Friendly Options**:
-       - Provide clickable preset options (`single_choice` or `multiple_choice`) so the artisan can quickly select without typing lengthy text.
-    4. Provide an optional tip (`explanation_tip`) showing why buyers look for this specification.
+    --- DEDUCTION & QUESTION RULES ---
+    1. **USER DESCRIPTION OVERRIDES**: Parse the user's description. If the user ALREADY stated a fact (e.g., "Pure Mulberry Silk", "Height 10 inches"), TREAT IT AS A CONFIRMED FACT. DO NOT ask the user to confirm or repeat this information.
+    2. **LLM VISUAL CONFIRMATION**: If an attribute was detected ONLY by the LLM visual analysis (e.g., LLM saw "Terracotta / Clay"), generate a confirmation question asking the artisan to verify or specify the exact grade/type (e.g., "The image looks like Terracotta. Is this Pure Red Clay, Black Clay, or Ceramic?").
+    3. **RAW MATERIAL & QUANTITY BREAKDOWN**: Ask for specific raw materials and exact quantities/units required to produce 1 unit of this item (e.g., weight of clay in grams/kg, meters of thread, volume of natural dye) so the cost can be processed by an ML model.
+    4. **E-COMMERCE LISTING SPECS**: Ask for critical missing non-visual attributes required for online listing (e.g., dimensions, care instructions, crafting duration).
+
+    Generate 3 to 5 clear, user-friendly questions with preset choices (`single_choice` / `multiple_choice`) wherever applicable.
     """
 
     for attempt in range(max_retries):
@@ -89,30 +93,35 @@ def generate_artisan_questions(extracted_visual_data: dict, max_retries: int = 3
                 )
             )
             return json.loads(response.text)
-        
+
         except (ServerError, APIError) as e:
             if attempt < max_retries - 1:
                 wait_time = (attempt + 1) * 2
-                print(f"[!] API error standard backoff retry ({attempt + 1}/{max_retries}). Waiting {wait_time}s...")
+                print(f"[!] API error encountered, retrying ({attempt + 1}/{max_retries}). Waiting {wait_time}s...")
                 time.sleep(wait_time)
             else:
                 raise e
 
 
 if __name__ == "__main__":
-    # Example input for a saree
-    sample_extracted_data = {
+    # Visual extraction performed by image analysis model
+    sample_llm_visual_analysis = {
         "is_valid_artisan_product": True,
         "major_category": "3. Pottery & Terracotta",
         "sub_category": "Decorative pots",
-        "materials_detected": ["Terracotta", "Clay", "Natural pigment"],
-        "visual_features": ["Hand-painted floral motifs", "Earthy red tone", "Narrow neck matte finish"],
-        "confidence_score": 0.95,
+        "materials_detected": ["Terracotta", "Clay", "Natural Pigment"],
+        "visual_features": ["Hand-painted floral motifs", "Earthy red tone"],
         "brief_summary": "Handcrafted earthen terracotta pot with traditional floral hand-paintings."
     }
 
-    print("[+] Generating tailored cataloging questions for artisan...")
-    questions_data = generate_artisan_questions(sample_extracted_data)
-    
+    # User already mentioned material type (organic red clay) and height (12 inches)
+    sample_user_description = "Handmade terracotta pot using organic red clay. Height is 12 inches."
+
+    print("[+] Analyzing inputs and generating targeted questions...")
+    questions_data = generate_artisan_questions(
+        llm_visual_analysis=sample_llm_visual_analysis, 
+        user_description=sample_user_description
+    )
+
     print("\n--- GENERATED QUESTIONNAIRE ---")
     print(json.dumps(questions_data, indent=2))
