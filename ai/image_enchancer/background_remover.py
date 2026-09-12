@@ -1,36 +1,35 @@
-import os
+import numpy as np
+import cv2
 from rembg import remove, new_session
 
-def remove_product_background(input_path, output_path, model_name="birefnet-general"):
+# Initialize session once globally to optimize performance
+_rembg_session = new_session("birefnet-general")
+
+def remove_product_background(image_matrix):
     """
-    Removes the background from a product image and saves it as a transparent PNG.
+    Takes an in-memory OpenCV BGR matrix.
+    Removes the background using rembg and returns a 4-channel BGRA OpenCV matrix.
     """
-    # 1. Validate the file exists
-    if not os.path.exists(input_path):
-        print(f"Error: The file '{input_path}' was not found.")
-        return
+    if image_matrix is None:
+        return False, None, "Error: Invalid image matrix provided for background removal."
 
-    print(f"Initializing AI model: {model_name}...")
-    # 2. Create a session to reuse the model (improves performance)
-    session = new_session(model_name)
+    # 1. Encode OpenCV matrix to PNG bytes in memory
+    success, encoded_img = cv2.imencode('.png', image_matrix)
+    if not success:
+        return False, None, "Error: Failed to encode image for background removal."
+    
+    input_bytes = encoded_img.tobytes()
 
-    print("Reading image data...")
-    # 3. Read the image as raw bytes
-    with open(input_path, 'rb') as input_file:
-        input_data = input_file.read()
+    # 2. Execute background removal using the pre-loaded session
+    try:
+        output_bytes = remove(input_bytes, session=_rembg_session)
+    except Exception as e:
+        return False, None, f"Error during background removal execution: {str(e)}"
 
-    print("Executing background removal...")
-    # 4. Remove the background using the session
-    output_data = remove(input_data, session=session)
+    # 3. Decode output bytes back into a 4-channel BGRA OpenCV matrix (preserving alpha)
+    rgba_matrix = cv2.imdecode(np.frombuffer(output_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
 
-    print("Saving transparent product image...")
-    # 5. Write the resulting bytes to the new file
-    with open(output_path, 'wb') as output_file:
-        output_file.write(output_data)
+    if rgba_matrix is None or rgba_matrix.shape[2] != 4:
+        return False, None, "Error: Background removal output is not a valid 4-channel RGBA image."
 
-    print(f"Success! The cutout image has been saved to: {output_path}")
-
-# --- Test the function ---
-# Make sure you have a test image named 'test_photo.jpg' in the same folder.
-# The output MUST be a .png file to preserve the transparency.
-remove_product_background('image4.jpg', 'product_cutout4.png')
+    return True, rgba_matrix, "Background removed successfully."
