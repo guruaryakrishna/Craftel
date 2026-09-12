@@ -326,3 +326,36 @@ print("CatBoost overall prediction accuracy:", catboost_accuracy, "%")
 joblib.dump(catboost_model, "catboost_pricing_model.pkl")
 
 print("\nOptimized CatBoost model saved successfully.")
+# Load the saved CatBoost model
+
+saved_model = joblib.load("catboost_pricing_model.pkl")
+
+
+# Predict selling price for a new product
+
+def predict_price(
+    product_category,
+    product_type,
+    material_cost,
+    production_time_days,
+    region,
+    origin_state,
+    demand_index,
+    market_trend,
+    material_type
+):
+    input_data = pd.DataFrame([{
+        "product_category": product_category,
+        "product_type": product_type,
+        "material_cost": material_cost,
+        "production_time_days": production_time_days,
+        "region": region,
+        "origin_state": origin_state,
+        "demand_index": demand_index,
+        "market_trend": market_trend,
+        "material_type": material_type
+    }])
+
+    predicted_price = saved_model.predict(input_data)[0]
+
+    return predicted_price
