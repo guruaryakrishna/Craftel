@@ -1,5 +1,17 @@
 require('dotenv').config();
 
+// --- GLOBAL CRASH CATCHERS ---
+process.on('exit', (code) => {
+    console.log(`\n🛑 NODE.JS PROCESS EXITING with code: ${code}\n`);
+});
+process.on('uncaughtException', (err) => {
+    console.error('\n💥 UNCAUGHT EXCEPTION:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('\n💥 UNHANDLED REJECTION:', reason);
+});
+// -----------------------------
+
 const express = require('express');
 const cors = require('cors');
 const pool = require('./config/db');
@@ -102,7 +114,7 @@ app.use((err, req, res, next) => {
 // 7. START SERVER
 // ==========================================
 
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
     console.log('==========================================');
     console.log('🚀 Craftel Backend Started');
     console.log(`🌐 Server: http://localhost:${PORT}`);
@@ -110,4 +122,14 @@ app.listen(PORT, async () => {
     console.log('==========================================');
 
     await testDatabaseConnection();
+
+    // The Heartbeat - forces Node to stay awake and report status
+    setInterval(() => {
+        console.log('💓 Heartbeat: Server is still alive...');
+    }, 3000);
+});
+
+// This will catch any silent crashes!
+server.on('error', (error) => {
+    console.error('🔥 FATAL SERVER ERROR:', error.message);
 });
