@@ -6,6 +6,12 @@ from typing import Dict, Any, Optional, List
 import cv2
 import numpy as np
 
+# ==========================================
+# PRICING IMPORTS
+# ==========================================
+import pandas as pd
+import joblib
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -42,6 +48,17 @@ app = FastAPI(
     version="1.0"
 )
 
+# ==========================================
+# LOAD MACHINE LEARNING MODEL
+# ==========================================
+# Loads once when the server starts to keep API responses lightning fast
+try:
+    pricing_model = joblib.load("catboost_pricing_model.pkl")
+    print("CatBoost Pricing Model loaded successfully.")
+except Exception as e:
+    print(f"Warning: Could not load pricing model. Ensure 'catboost_pricing_model.pkl' is in the same directory. Error: {e}")
+    pricing_model = None
+
 
 # ==========================================
 # CORS
@@ -64,22 +81,30 @@ class QuestionGenRequest(BaseModel):
     llm_visual_analysis: Dict[str, Any]
     user_description: Optional[str] = ""
 
-
 class ValidateAnswerRequest(BaseModel):
     question_text: str
     question_type: str
     transcribed_answer: str
 
-
 class TranslationRequest(BaseModel):
     text: str
     target_language: str = "en"
-
 
 class ProductDescriptionRequest(BaseModel):
     llm_visual_analysis: Dict[str, Any]
     user_description: Optional[str] = ""
     qa_responses: Optional[List[Dict[str, Any]]] = None
+
+class PricingRequest(BaseModel):
+    product_category: str
+    product_type: str
+    material_cost: float
+    production_time_days: int
+    region: str
+    origin_state: str
+    demand_index: float
+    market_trend: float
+    material_type: str
 
 
 # ==========================================
@@ -103,9 +128,7 @@ async def api_extract_visuals(
     image: UploadFile = File(...)
 ):
     """Endpoint to process uploaded product image through vision LLM."""
-
     temp_path = None
-
     try:
         with tempfile.NamedTemporaryFile(
             delete=False,
@@ -116,7 +139,6 @@ async def api_extract_visuals(
             temp_path = temp_img.name
 
         extracted_data = extract_product_data(temp_path)
-
         return extracted_data
 
     except Exception as e:
@@ -124,7 +146,6 @@ async def api_extract_visuals(
             status_code=500,
             detail=str(e)
         )
-
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
@@ -139,13 +160,11 @@ def api_generate_questions(
     data: QuestionGenRequest
 ):
     """Endpoint to generate targeted artisan questions."""
-
     try:
         result = generate_artisan_questions(
             llm_visual_analysis=data.llm_visual_analysis,
             user_description=data.user_description
         )
-
         return result
 
     except Exception as e:
@@ -166,9 +185,7 @@ async def api_transcribe_audio(
     prompt: Optional[str] = Form(None)
 ):
     """Endpoint to transcribe voice audio files using Groq Whisper."""
-
     temp_path = None
-
     try:
         with tempfile.NamedTemporaryFile(
             delete=False,
@@ -193,7 +210,6 @@ async def api_transcribe_audio(
             status_code=500,
             detail=str(e)
         )
-
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
@@ -208,14 +224,12 @@ def api_validate_answer(
     data: ValidateAnswerRequest
 ):
     """Endpoint to validate transcribed user answer."""
-
     try:
         result = validate_artisan_answer(
             question_text=data.question_text,
             question_type=data.question_type,
             transcribed_answer=data.transcribed_answer
         )
-
         return result
 
     except Exception as e:
@@ -234,7 +248,6 @@ def api_translate(
     data: TranslationRequest
 ):
     """Endpoint to handle language translation."""
-
     try:
         translated_text = translate_text(
             data.text,
@@ -261,14 +274,12 @@ def api_generate_description(
     data: ProductDescriptionRequest
 ):
     """Endpoint to generate final e-commerce product description."""
-
     try:
         result = generate_final_product_description(
             llm_visual_analysis=data.llm_visual_analysis,
             user_description=data.user_description,
             qa_responses=data.qa_responses
         )
-
         return result
 
     except Exception as e:
@@ -292,34 +303,28 @@ async def api_process_product_image(image: UploadFile = File(...)):
     4. 1080x1080 White Canvas & Drop Shadow Formatting
     """
     try:
-        # Read raw incoming bytes and decode to an OpenCV matrix
         raw_bytes = await image.read()
         image_matrix = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
 
         if image_matrix is None:
             raise HTTPException(status_code=400, detail="Invalid image file provided.")
 
-        # Step 1: Blur Check
         is_sharp, score, blur_msg = validate_image_sharpness(image_matrix)
         if not is_sharp:
             return {"status": "rejected", "step": "blur_check", "message": blur_msg, "score": score}
 
-        # Step 2: Lighting Routing & AI Enhancement
         success_light, enhanced_matrix, light_msg = process_lighting_pipeline(image_matrix)
         if not success_light:
             raise HTTPException(status_code=500, detail=light_msg)
 
-        # Step 3: Background Removal
         success_bg, rgba_matrix, bg_msg = remove_product_background(enhanced_matrix)
         if not success_bg:
             raise HTTPException(status_code=500, detail=bg_msg)
 
-        # Step 4: Canvas Formatter with Drop Shadow
         success_canvas, final_canvas, canvas_msg = format_ecommerce_canvas(rgba_matrix, canvas_size=1080, padding=120)
         if not success_canvas:
             raise HTTPException(status_code=500, detail=canvas_msg)
 
-        # Step 5: Save locally for cataloger/LLM downstream tasks
         output_dir = "processed_outputs"
         os.makedirs(output_dir, exist_ok=True)
         safe_filename = f"product_{os.path.splitext(image.filename)[0]}.jpg"
@@ -336,6 +341,33 @@ async def api_process_product_image(image: UploadFile = File(...)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# 8. PREDICT PRODUCT SELLING PRICE
+# ==========================================
+
+@app.post("/api/predict-price")
+async def get_price_prediction(data: PricingRequest):
+    """Endpoint to predict fair market value using CatBoost model."""
+    if pricing_model is None:
+        raise HTTPException(status_code=500, detail="Pricing model is not loaded on the server.")
+
+    try:
+        # Convert incoming JSON data into a DataFrame format
+        input_data = pd.DataFrame([data.model_dump()])
+        
+        # Make the prediction
+        predicted_price = pricing_model.predict(input_data)[0]
+        
+        return {
+            "status": "success",
+            "predicted_price": round(float(predicted_price), 2),
+            "currency": "INR"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
 
 # ==========================================
